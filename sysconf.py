@@ -149,6 +149,8 @@ class SysConf:
         packages = load_package_manifest(manifest_path, groups=groups, pm=self.pm)
         self.log(f"Package groups: {groups or 'all'}")
         self.log(f"Packages to ensure: {len(packages)}")
+        for p_idx in range(len(packages)):
+            self.log(f"\tPackage {p_idx + 1}: {packages[p_idx]}")
 
         if self.verbose:
             for pkg in packages:

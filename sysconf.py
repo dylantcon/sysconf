@@ -527,7 +527,9 @@ class SysConf:
 
         self.log("")
         self.log("=" * 60)
-        if self.changes:
+        if self.dry_run:
+            self.log("Dry-run complete - no changes were made")
+        elif self.changes:
             self.log(f"Changes made: {len(self.changes)}")
             for change in self.changes:
                 self.log(f"  - {change}")
@@ -537,27 +539,32 @@ class SysConf:
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="sysconf - DIY configuration management for Linux systems",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=__doc__,
-    )
-
-    parser.add_argument(
+    # Common flags shared by all subcommands
+    common_parser = argparse.ArgumentParser(add_help=False)
+    common_parser.add_argument(
         "-n", "--dry-run",
         action="store_true",
         help="Show what would be done without making changes",
     )
-    parser.add_argument(
+    common_parser.add_argument(
         "-v", "--verbose",
         action="store_true",
         help="Enable verbose output",
     )
 
+    parser = argparse.ArgumentParser(
+        description="sysconf - DIY configuration management for Linux systems",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__,
+        parents=[common_parser],
+    )
+
     subparsers = parser.add_subparsers(dest="command", help="Commands")
 
     # apply command
-    apply_parser = subparsers.add_parser("apply", help="Apply full configuration")
+    apply_parser = subparsers.add_parser(
+        "apply", help="Apply full configuration", parents=[common_parser]
+    )
     apply_parser.add_argument(
         "--groups",
         type=str,
@@ -565,7 +572,9 @@ def main():
     )
 
     # packages command
-    pkg_parser = subparsers.add_parser("packages", help="Install packages only")
+    pkg_parser = subparsers.add_parser(
+        "packages", help="Install packages only", parents=[common_parser]
+    )
     pkg_parser.add_argument(
         "--groups",
         type=str,
@@ -578,16 +587,18 @@ def main():
     )
 
     # dotfiles command
-    subparsers.add_parser("dotfiles", help="Deploy dotfiles only")
+    subparsers.add_parser("dotfiles", help="Deploy dotfiles only", parents=[common_parser])
 
     # services command
-    subparsers.add_parser("services", help="Configure services only")
+    subparsers.add_parser("services", help="Configure services only", parents=[common_parser])
 
     # security command
-    subparsers.add_parser("security", help="Apply security hardening only")
+    subparsers.add_parser("security", help="Apply security hardening only", parents=[common_parser])
 
     # nginx command
-    nginx_parser = subparsers.add_parser("nginx", help="Configure nginx sites")
+    nginx_parser = subparsers.add_parser(
+        "nginx", help="Configure nginx sites", parents=[common_parser]
+    )
     nginx_parser.add_argument(
         "--bootstrap",
         action="store_true",
@@ -600,7 +611,7 @@ def main():
     )
 
     # info command
-    subparsers.add_parser("info", help="Show system information")
+    subparsers.add_parser("info", help="Show system information", parents=[common_parser])
 
     args = parser.parse_args()
 

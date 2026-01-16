@@ -1,0 +1,33 @@
+# HTTP-only bootstrap config for certbot provisioning
+# After certbot runs, this gets replaced with the full SSL config
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{ domain }};
+
+    # Let's Encrypt ACME challenge
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
+
+{% if static_root %}
+    # Static files
+    root {{ static_root }};
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+{% else %}
+    # Reverse proxy to application
+    location / {
+        proxy_pass http://127.0.0.1:{{ upstream_port }};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+{% endif %}
+}

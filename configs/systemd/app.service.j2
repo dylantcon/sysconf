@@ -1,0 +1,43 @@
+# Systemd service template for web applications
+# Variables: name, description, user, group, working_dir, exec_start, environment (optional)
+
+[Unit]
+Description={{ description }}
+After=network.target
+{% if requires %}
+Requires={{ requires }}
+{% endif %}
+
+[Service]
+Type=simple
+User={{ user }}
+Group={{ group }}
+WorkingDirectory={{ working_dir }}
+ExecStart={{ exec_start }}
+Restart=always
+RestartSec=5
+
+# Environment
+{% for key, value in environment.items() %}
+Environment="{{ key }}={{ value }}"
+{% endfor %}
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+
+# Allow write access to specific directories if needed
+{% if write_paths %}
+ReadWritePaths={{ write_paths | join(' ') }}
+{% endif %}
+
+[Install]
+WantedBy=multi-user.target

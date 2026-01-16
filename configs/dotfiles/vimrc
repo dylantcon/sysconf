@@ -1,0 +1,75 @@
+" ~/.vimrc - Vim configuration
+" Managed by sysconf
+
+" Basic settings
+set nocompatible
+filetype plugin indent on
+syntax on
+
+" UI settings
+set number
+set relativenumber
+set cursorline
+set showcmd
+set showmatch
+set wildmenu
+set wildmode=longest:full,full
+set laststatus=2
+
+" Indentation
+set tabstop=4
+set softtabstop=4
+set shiftwidth=4
+set expandtab
+set autoindent
+set smartindent
+
+" Search
+set incsearch
+set hlsearch
+set ignorecase
+set smartcase
+
+" File handling
+set encoding=utf-8
+set fileencoding=utf-8
+set autoread
+set hidden
+set nobackup
+set noswapfile
+
+" Performance
+set lazyredraw
+set ttyfast
+
+" Key mappings
+let mapleader = " "
+
+" Clear search highlighting
+nnoremap <leader>/ :nohlsearch<CR>
+
+" Quick save
+nnoremap <leader>w :w<CR>
+
+" Window navigation
+nnoremap <C-h> <C-w>h
+nnoremap <C-j> <C-w>j
+nnoremap <C-k> <C-w>k
+nnoremap <C-l> <C-w>l
+
+" Buffer navigation
+nnoremap <leader>bn :bnext<CR>
+nnoremap <leader>bp :bprev<CR>
+nnoremap <leader>bd :bdelete<CR>
+
+" File type specific settings
+autocmd FileType python setlocal tabstop=4 shiftwidth=4
+autocmd FileType javascript,typescript,json,yaml setlocal tabstop=2 shiftwidth=2
+autocmd FileType go setlocal noexpandtab tabstop=4 shiftwidth=4
+autocmd FileType make setlocal noexpandtab
+
+" Trim trailing whitespace on save
+autocmd BufWritePre * :%s/\s\+$//e
+
+" Return to last edit position when opening files
+autocmd BufReadPost * if line("'\"") > 1 && line("'\"") <= line("$") | exe "normal! g'\"" | endif

@@ -1,0 +1,124 @@
+# Package manifest for sysconf
+# Groups can be selectively installed via: sysconf.py install --groups common,server
+
+[common]
+# Essential CLI tools
+packages = [
+    "vim",
+    "git",
+    "tmux",
+    "htop",
+    "curl",
+    "wget",
+    "tree",
+    "jq",
+    "ripgrep",
+    "neofetch",
+    "screen",
+]
+
+[development]
+# Development tools
+packages = [
+    "build-essential",
+    "python3",
+    "python3-pip",
+    "python3-venv",
+    "nodejs",
+    "npm",
+    "cmake",
+    "pkg-config",
+    "gdb",
+]
+
+[server]
+# Server essentials
+packages = [
+    "nginx",
+    "certbot",
+    "python3-certbot-nginx",
+    "fail2ban",
+    "nftables",
+    "openssh-server",
+    "rsyslog",
+    "logrotate",
+    "unattended-upgrades",
+]
+
+[security]
+# Security hardening and monitoring
+packages = [
+    "auditd",
+    "lynis",
+    "rkhunter",
+    "aide",
+    "haveged",
+    "chrony",
+    "debsums",
+]
+
+[database]
+# Databases
+packages = [
+    "postgresql",
+    "postgresql-contrib",
+]
+
+[golang]
+# Go development (note: Go itself installed via tarball)
+packages = []
+
+[extras]
+# Nice-to-have tools
+packages = [
+    "httpie",
+    "hyperfine",
+    "iotop",
+    "nmon",
+    "sysstat",
+    "inotify-tools",
+    "reptyr",
+    "xclip",
+    "graphviz",
+]
+
+[funstuff]
+# For fun
+packages = [
+    "cowsay",
+    "fortune-mod",
+    "cmatrix",
+    "sl",
+]
+
+# Cross-distro package name mappings
+# Add entries here when package names differ between distros
+
+[aliases.apt]
+# Debian/Ubuntu package names (usually the default)
+build-essential = "build-essential"
+python3-certbot-nginx = "python3-certbot-nginx"
+ripgrep = "ripgrep"
+
+[aliases.pacman]
+# Arch Linux package names
+build-essential = "base-devel"
+python3 = "python"
+python3-pip = "python-pip"
+python3-venv = "python"
+python3-certbot-nginx = "certbot-nginx"
+ripgrep = "ripgrep"
+openssh-server = "openssh"
+rsyslog = "rsyslog"
+debsums = ""  # Not available on Arch
+aide = "aide"
+
+[aliases.dnf]
+# Fedora/RHEL package names
+build-essential = "gcc gcc-c++ make"
+python3-pip = "python3-pip"
+python3-venv = "python3"
+python3-certbot-nginx = "python3-certbot-nginx"
+ripgrep = "ripgrep"
+openssh-server = "openssh-server"
+debsums = ""  # Not available on Fedora

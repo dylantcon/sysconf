@@ -14,6 +14,7 @@ Usage:
     ./sysconf.py security           # Apply security hardening only
     ./sysconf.py nginx              # Deploy nginx sites (SSL if certs exist)
     ./sysconf.py nginx --bootstrap  # Bootstrap: HTTP -> certbot -> SSL
+    ./sysconf.py tailscale          # Configure Tailscale VPN
 """
 
 import argparse
@@ -54,6 +55,11 @@ from lib.security import (
     setup_fail2ban,
     setup_unattended_upgrades,
 )
+from lib.tailscale import (
+    is_tailscale_authenticated,
+    setup_tailscale,
+    tailscale_logout,
+)
 
 # Project paths
 PROJECT_ROOT = Path(__file__).parent.resolve()
@@ -82,6 +88,18 @@ def load_sites_config() -> dict[str, SiteConfig]:
         data = tomllib.load(f)
 
     return data.get("sites", {})
+
+
+def load_tailscale_config() -> dict:
+    """Load Tailscale configuration from tailscale.toml."""
+    config_file = CONFIGS_DIR / "tailscale.toml"
+    if not config_file.exists():
+        return {}
+
+    with open(config_file, "rb") as f:
+        data = tomllib.load(f)
+
+    return data.get("tailscale", {})
 
 
 def get_secret(name: str) -> str:
@@ -492,6 +510,76 @@ class SysConf:
                     self.record_change(f"Enabled {service}")
 
     # -------------------------------------------------------------------------
+    # Tailscale
+    # -------------------------------------------------------------------------
+
+    def setup_tailscale_vpn(self, logout: bool = False) -> None:
+        """Configure Tailscale VPN for remote access."""
+        self.log("=== Configuring Tailscale ===")
+
+        if logout:
+            self.log("Logging out of Tailscale...")
+            if not self.dry_run:
+                if tailscale_logout():
+                    self.record_change("Logged out of Tailscale")
+                else:
+                    self.log("WARNING: Tailscale logout failed")
+            return
+
+        config = load_tailscale_config()
+        if not config.get("enabled", True):
+            self.log("Tailscale disabled in config, skipping")
+            return
+
+        # Install tailscale
+        if not self.dry_run:
+            ensure_packages(["tailscale"], self.pm)
+            enable_service("tailscaled")
+
+        # Check authentication status
+        if is_tailscale_authenticated():
+            self.log("Tailscale already authenticated")
+        else:
+            self.log("Tailscale not authenticated, will authenticate...")
+
+        # Get auth key
+        try:
+            auth_key = get_secret("tailscale-authkey")
+        except ValueError:
+            if self.dry_run:
+                auth_key = "dry-run-placeholder"
+                self.log("Would authenticate with auth key from secrets/tailscale-authkey")
+            else:
+                self.log("ERROR: No Tailscale auth key found")
+                self.log("  Set TAILSCALE_AUTHKEY env var or create secrets/tailscale-authkey")
+                return
+
+        # Log configuration
+        hostname = config.get("hostname", "")
+        ssh = config.get("ssh", True)
+        accept_dns = config.get("accept_dns", True)
+        accept_routes = config.get("accept_routes", False)
+
+        self.log(f"  Hostname: {hostname or '(default)'}")
+        self.log(f"  Tailscale SSH: {ssh}")
+        self.log(f"  Accept DNS: {accept_dns}")
+        self.log(f"  Accept routes: {accept_routes}")
+
+        if not self.dry_run:
+            if setup_tailscale(
+                auth_key=auth_key,
+                hostname=hostname,
+                ssh=ssh,
+                accept_dns=accept_dns,
+                accept_routes=accept_routes,
+                exit_node=config.get("exit_node", False),
+                advertise_routes=config.get("advertise_routes"),
+            ):
+                self.record_change("Configured Tailscale")
+            else:
+                self.log("WARNING: Tailscale setup may have failed")
+
+    # -------------------------------------------------------------------------
     # Security
     # -------------------------------------------------------------------------
 
@@ -612,6 +700,16 @@ def main():
         help="Only run certbot for defined sites",
     )
 
+    # tailscale command
+    tailscale_parser = subparsers.add_parser(
+        "tailscale", help="Configure Tailscale VPN", parents=[common_parser]
+    )
+    tailscale_parser.add_argument(
+        "--logout",
+        action="store_true",
+        help="Logout from Tailscale tailnet",
+    )
+
     # info command
     subparsers.add_parser("info", help="Show system information", parents=[common_parser])
 
@@ -650,6 +748,9 @@ def main():
                 conf.nginx_bootstrap()
             else:
                 conf.setup_nginx()
+
+        elif args.command == "tailscale":
+            conf.setup_tailscale_vpn(logout=args.logout)
 
         elif args.command == "info":
             print(f"Package Manager: {conf.pm.name}")

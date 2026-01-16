@@ -1,0 +1,12 @@
+# Tailscale configuration
+# Auth key: set TAILSCALE_AUTHKEY env var or create secrets/tailscale-authkey file
+# Generate a reusable auth key at: https://login.tailscale.com/admin/settings/keys
+
+[tailscale]
+enabled = true
+hostname = "rpi5"
+ssh = true              # Enable Tailscale SSH (access via `ssh user@rpi5`)
+accept_dns = true       # Use MagicDNS for easy hostnames
+accept_routes = false   # Accept subnet routes from other nodes
+# exit_node = false     # Uncomment to advertise as exit node
+# advertise_routes = [] # Uncomment to share local subnets, e.g. ["192.168.1.0/24"]

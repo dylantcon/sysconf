@@ -186,13 +186,20 @@ class SysConf:
     def deploy_dotfiles(self) -> None:
         """Deploy user dotfiles via symlinks."""
         self.log("=== Deploying Dotfiles ===")
+        try:
+            if 'root' == os.environ['SUDO_USER']:
+                home = Path.home()
+            else:
+                home = Path(f"/home/{os.environ.get('SUDO_USER')}/")
+        except (KeyError, RuntimeError) as e:
+                print(f"Issue(s) with path construction: {e}")
+                home = Path(os.path.expanduser('~'))
+            
 
-        dotfiles_dir = CONFIGS_DIR / "dotfiles"
+        dotfiles_dir = CONFIGS_DIR / u"dotfiles"
         if not dotfiles_dir.exists():
             self.log("No dotfiles directory found, skipping")
             return
-
-        home = Path.home()
 
         # Map of source -> destination
         dotfile_map = {

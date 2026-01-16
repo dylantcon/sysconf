@@ -250,6 +250,10 @@ def ensure_symlink(
     target = Path(target)
     needs_sudo = _needs_sudo(link_path.parent)
 
+    print("Ensuring symlink: ", link_path)
+    print(f"\t(has target {target})")
+    print(f"\t(sudo reqd = {needs_sudo}")
+
     # Check current state
     if link_path.is_symlink():
         current_target = link_path.resolve()

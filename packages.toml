@@ -13,7 +13,7 @@ packages = [
     "tree",
     "jq",
     "ripgrep",
-    "neofetch",
+    "fastfetch",
     "screen",
 ]
 

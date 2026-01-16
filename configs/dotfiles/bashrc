@@ -97,3 +97,10 @@ fi
 
 # Python virtual environment shortcut
 alias py3='source ~/.venvs/py3/bin/activate'
+
+# Below is used by vim to automatically update fileperms for data served by nginx
+alias web-breadcrumb='read -n 1 -s -r -p "Press any key to continue . . ."'
+alias web-msg='echo -e "Recursively applied access 755, group dev:www-data\n"'
+alias web-owns='sudo chown -Rc dev:www-data /var/www/'
+alias web-modes='sudo chmod -Rc 755 /var/www/'
+alias web-perms='web-owns && web-modes && web-msg && web-breadcrumb'

@@ -1,6 +1,9 @@
 " ~/.vimrc - Vim configuration
 " Managed by sysconf
 
+" make shell interactive so aliases work
+set shellcmdflag=-ic
+
 " Basic settings
 set nocompatible
 filetype plugin indent on
@@ -73,3 +76,5 @@ autocmd BufWritePre * :%s/\s\+$//e
 
 " Return to last edit position when opening files
 autocmd BufReadPost * if line("'\"") > 1 && line("'\"") <= line("$") | exe "normal! g'\"" | endif
+
+autocmd BufWritePost /var/www/* !web-perms

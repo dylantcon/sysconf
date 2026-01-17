@@ -14,7 +14,7 @@ PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 CONFIGS_DIR = PROJECT_ROOT / "configs"
 SECRETS_DIR = PROJECT_ROOT / "secrets"
 SECRETS_FILE = SECRETS_DIR / "config.toml"
-SECRETS_EXAMPLE = CONFIGS_DIR / "secrets.example.toml"
+SECRETS_EXAMPLE = PROJECT_ROOT / "secrets.example.toml"
 
 
 def parse_env_example(file_path: Path) -> Dict[str, str]:

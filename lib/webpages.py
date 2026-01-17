@@ -9,7 +9,7 @@ from typing import Dict, List, Optional
 from .files import ensure_dir, ensure_file, ensure_symlink, render_template, set_permissions_recursive
 from .git import clone_or_pull
 from .prompts import warn_missing
-from .secrets import SecretsManager
+from .secrets import SecretsManager, scan_repo_env_examples
 from .services import daemon_reload, enable_service, ensure_service_file, reload_service
 from .toolchains import ToolchainManager
 
@@ -355,6 +355,12 @@ class WebpageDeployer:
         # Ensure directory exists (for non-repo cases)
         if not self.dry_run:
             ensure_dir(webpage_path, owner="dev", group="www-data", mode=0o755)
+
+        # Process .env.example files before build (builds often need env vars)
+        env_examples = scan_repo_env_examples(webpage_path)
+        if env_examples:
+            self.log(f"  Found .env.example file(s), processing secrets...")
+            self.secrets_manager.process_repo_secrets(name, env_examples, webpage_path)
 
         # Run build if specified
         build_cmd = config.get("build")

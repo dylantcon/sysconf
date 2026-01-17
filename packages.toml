@@ -29,6 +29,7 @@ packages = [
     "cmake",
     "pkg-config",
     "gdb",
+    "dnsutils"
 ]
 
 [server]

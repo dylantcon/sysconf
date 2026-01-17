@@ -101,3 +101,4 @@ alias web-msg='echo -e "Recursively applied access 755, group dev:www-data\n"'
 alias web-owns='sudo chown -Rc dev:www-data /var/www/'
 alias web-modes='sudo chmod -Rc 755 /var/www/'
 alias web-perms='web-owns && web-modes && web-msg && web-breadcrumb'
+export PATH=/home/dev/.local/bin:/home/dev/bin:/home/dev/.local/bin:/home/dev/bin:/home/dev/.local/bin:/home/dev/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/games:/usr/games:.

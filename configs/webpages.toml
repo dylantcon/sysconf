@@ -1,0 +1,77 @@
+# Webpage definitions for sysconf
+# Each webpage gets nginx config, systemd services, and optional build steps
+# Branch is auto-detected from remote; specify 'branch = "name"' only to override
+
+[defaults]
+base_path = "/var/www"
+proxy_ssl = true  # SSL terminated by Cloudflare Tunnel
+
+# -----------------------------------------------------------------------------
+# dconn.dev - Main site (Go backend)
+# -----------------------------------------------------------------------------
+[webpages.dconn-dev]
+domain = "dconn.dev"
+aliases = ["www.dconn.dev"]
+repo = "dylantcon/portfolio"
+build = "make build"
+
+[webpages.dconn-dev.upstream]
+port = 8080
+keepalive = 32
+
+[[webpages.dconn-dev.locations]]
+path = "/"
+proxy = true
+
+[[webpages.dconn-dev.locations]]
+path = "/static/"
+alias = "{path}/static/"
+cache_days = 30
+
+[[webpages.dconn-dev.services]]
+name = "dconn-dev"
+description = "dconn.dev Go backend"
+exec_start = "{path}/bin/server"
+environment = { PORT = "8080" }
+
+# -----------------------------------------------------------------------------
+# countertrak.dconn.dev - Counter-Strike stat tracker
+# -----------------------------------------------------------------------------
+[webpages.countertrak]
+domain = "countertrak.dconn.dev"
+ssl_cert_domain = "dconn.dev"  # For wildcard cert
+repo = "dylantcon/countertrak"
+
+[[webpages.countertrak.locations]]
+path = "/"
+proxy_port = 8000
+
+[[webpages.countertrak.locations]]
+path = "/gsi/"
+proxy_port = 3000
+
+[[webpages.countertrak.locations]]
+path = "/static/"
+alias = "{path}/backend/static/"
+
+[[webpages.countertrak.services]]
+name = "countertrak-django"
+description = "Countertrak Django"
+exec_start = "{path}/venv/bin/gunicorn backend.wsgi:application -b 127.0.0.1:8000"
+
+[[webpages.countertrak.services]]
+name = "countertrak-gsi"
+description = "Countertrak GSI"
+exec_start = "{path}/gsi/server"
+
+# -----------------------------------------------------------------------------
+# learn.dconn.dev - Static learning site
+# -----------------------------------------------------------------------------
+[webpages.learn]
+domain = "learn.dconn.dev"
+repo = "dylantcon/learn-dconn-dev"
+static = true
+
+[[webpages.learn.static_cache]]
+extensions = ["mp4", "webm", "ogg", "jpg", "jpeg", "png", "gif", "ico", "css", "js"]
+days = 7

@@ -105,6 +105,41 @@ def ensure_dir(
     return changed
 
 
+def set_permissions_recursive(
+    path: Union[str, Path],
+    owner: Optional[str] = None,
+    group: Optional[str] = None,
+    mode: Optional[int] = None,
+) -> bool:
+    """
+    Recursively set ownership and permissions on a directory tree.
+
+    Returns:
+        True if any changes were made
+    """
+    path = Path(path)
+    if not path.exists():
+        return False
+
+    changed = False
+    needs_sudo = _needs_sudo(path)
+
+    if owner or group:
+        chown_arg = f"{owner or ''}:{group or ''}"
+        print(f"Setting ownership {chown_arg} recursively on {path}")
+        cmd = ["sudo", "chown", "-R", chown_arg, str(path)] if needs_sudo else ["chown", "-R", chown_arg, str(path)]
+        subprocess.run(cmd, check=True)
+        changed = True
+
+    if mode is not None:
+        print(f"Setting mode {oct(mode)} recursively on {path}")
+        cmd = ["sudo", "chmod", "-R", oct(mode)[2:], str(path)] if needs_sudo else ["chmod", "-R", oct(mode)[2:], str(path)]
+        subprocess.run(cmd, check=True)
+        changed = True
+
+    return changed
+
+
 def set_permissions(
     path: Union[str, Path],
     owner: Optional[str] = None,

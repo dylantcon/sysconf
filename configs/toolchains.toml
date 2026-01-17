@@ -1,0 +1,55 @@
+# Toolchain definitions for sysconf
+# These are installed from upstream sources, not apt
+
+[go]
+detect = ["go.mod", "go.sum"]           # Files that indicate this toolchain is needed
+check_cmd = "go version"                 # Command to check if installed
+version_regex = "go([0-9]+\\.[0-9]+)"   # Extract version from check output
+min_version = "1.21"
+# Install from official tarball
+install_type = "tarball"
+install_url = "https://go.dev/dl/go{version}.linux-{arch}.tar.gz"
+install_path = "/usr/local/go"
+path_add = "/usr/local/go/bin"
+# Fetch latest stable version
+latest_url = "https://go.dev/VERSION?m=text"
+latest_regex = "go([0-9]+\\.[0-9]+\\.[0-9]+)"
+# Architecture mapping
+[go.arch_map]
+x86_64 = "amd64"
+aarch64 = "arm64"
+
+[rust]
+detect = ["Cargo.toml", "Cargo.lock"]
+check_cmd = "rustc --version"
+version_regex = "rustc ([0-9]+\\.[0-9]+)"
+min_version = "1.70"
+# Install via rustup script
+install_type = "script"
+install_script = "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
+path_add = "$HOME/.cargo/bin"
+
+[node]
+detect = ["package.json"]
+check_cmd = "node --version"
+version_regex = "v([0-9]+)\\."
+min_version = "18"
+# Install from NodeSource or official
+install_type = "tarball"
+install_url = "https://nodejs.org/dist/v{version}/node-v{version}-linux-{arch}.tar.xz"
+install_path = "/usr/local/node"
+path_add = "/usr/local/node/bin"
+latest_url = "https://nodejs.org/dist/index.json"
+latest_jq = ".[0].version"
+[node.arch_map]
+x86_64 = "x64"
+aarch64 = "arm64"
+
+[bun]
+detect = ["bun.lockb", "bunfig.toml"]
+check_cmd = "bun --version"
+version_regex = "([0-9]+\\.[0-9]+)"
+min_version = "1.0"
+install_type = "script"
+install_script = "curl -fsSL https://bun.sh/install | bash"
+path_add = "$HOME/.bun/bin"

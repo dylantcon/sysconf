@@ -12,9 +12,9 @@ Usage:
     ./sysconf.py dotfiles           # Deploy dotfiles only
     ./sysconf.py services           # Configure services only
     ./sysconf.py security           # Apply security hardening only
-    ./sysconf.py nginx              # Deploy nginx sites (SSL if certs exist)
-    ./sysconf.py nginx --bootstrap  # Bootstrap: HTTP -> certbot -> SSL
     ./sysconf.py tailscale          # Configure Tailscale VPN
+    ./sysconf.py webpages           # Deploy web applications
+    ./sysconf.py secrets            # Manage secrets and .env files
 """
 
 import argparse
@@ -23,7 +23,6 @@ import subprocess
 import sys
 import tomllib
 from pathlib import Path
-from typing import TypedDict
 
 # Add lib to path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -36,19 +35,13 @@ from lib.packages import (
     update_system,
 )
 from lib.services import (
-    daemon_reload,
     enable_service,
-    ensure_service_file,
     reload_service,
     restart_service,
 )
 from lib.files import (
-    copy_tree,
-    ensure_dir,
     ensure_file,
-    ensure_symlink,
     read_file,
-    render_template,
 )
 from lib.security import (
     harden_ssh,
@@ -65,29 +58,6 @@ from lib.tailscale import (
 PROJECT_ROOT = Path(__file__).parent.resolve()
 CONFIGS_DIR = PROJECT_ROOT / "configs"
 SECRETS_DIR = PROJECT_ROOT / "secrets"
-
-# Nginx paths
-NGINX_SITES_AVAILABLE = Path("/etc/nginx/sites-available")
-NGINX_SITES_ENABLED = Path("/etc/nginx/sites-enabled")
-
-
-class SiteConfig(TypedDict, total=False):
-    """Type definition for site configuration."""
-    domain: str
-    upstream_port: int
-    static_root: str
-
-
-def load_sites_config() -> dict[str, SiteConfig]:
-    """Load site definitions from sites.toml."""
-    sites_file = CONFIGS_DIR / "nginx" / "sites.toml"
-    if not sites_file.exists():
-        return {}
-
-    with open(sites_file, "rb") as f:
-        data = tomllib.load(f)
-
-    return data.get("sites", {})
 
 
 def load_tailscale_config() -> dict:
@@ -306,193 +276,6 @@ class SysConf:
                             restart_service("fail2ban")
 
     # -------------------------------------------------------------------------
-    # Nginx
-    # -------------------------------------------------------------------------
-
-    def setup_nginx(self, bootstrap: bool = False) -> None:
-        """Configure nginx with sites from sites.toml."""
-        self.log("=== Configuring Nginx ===")
-
-        if not self.dry_run:
-            ensure_packages(["nginx"], self.pm)
-
-        # Deploy main nginx.conf
-        self._deploy_nginx_conf()
-
-        # Deploy sites from sites.toml
-        sites = load_sites_config()
-        if not sites:
-            self.log("No sites defined in sites.toml")
-            return
-
-        self.log(f"Found {len(sites)} site(s) to configure")
-
-        for name, site in sites.items():
-            domain = site.get("domain", name)
-            self.log(f"  - {domain}" + (" (bootstrap/HTTP-only)" if bootstrap else ""))
-
-            if not self.dry_run:
-                self._deploy_site(name, site, bootstrap=bootstrap)
-
-        # Validate and reload nginx
-        if not self.dry_run:
-            if self._validate_nginx():
-                try:
-                    reload_service("nginx")
-                    self.record_change("Reloaded nginx")
-                except subprocess.CalledProcessError:
-                    self.log("ERROR: nginx reload failed")
-            else:
-                self.log("WARNING: nginx config invalid, skipping reload")
-
-    def _deploy_nginx_conf(self) -> None:
-        """Deploy main nginx.conf."""
-        src = CONFIGS_DIR / "nginx" / "nginx.conf"
-        dest = Path("/etc/nginx/nginx.conf")
-
-        if not src.exists():
-            return
-
-        self.log(f"Deploying nginx.conf to {dest}")
-        if not self.dry_run:
-            original_content = read_file(dest) if dest.exists() else None
-            content = src.read_text()
-
-            if ensure_file(dest, content, owner="root", group="root", mode=0o644):
-                if not self._validate_nginx():
-                    self.log("WARNING: nginx.conf invalid, rolling back")
-                    if original_content:
-                        subprocess.run(
-                            ["sudo", "tee", str(dest)],
-                            input=original_content.encode(),
-                            stdout=subprocess.DEVNULL,
-                            check=True,
-                        )
-                    return
-                self.record_change("Updated nginx.conf")
-
-    def _deploy_site(self, name: str, site: SiteConfig, bootstrap: bool = False) -> None:
-        """Deploy a single site configuration."""
-        domain = site.get("domain", name)
-        template_name = "site-bootstrap.conf.j2" if bootstrap else "site.conf.j2"
-        template_path = CONFIGS_DIR / "nginx" / template_name
-
-        if not template_path.exists():
-            self.log(f"  Template {template_name} not found")
-            return
-
-        # Check if SSL certs exist (skip SSL template if not)
-        cert_path = Path(f"/etc/letsencrypt/live/{domain}/fullchain.pem")
-        cert_exists = False
-        try:
-            cert_exists = cert_path.exists()
-        except PermissionError:
-            result = subprocess.run(
-                ["sudo", "test", "-f", str(cert_path)],
-                capture_output=True,
-            )
-            cert_exists = result.returncode == 0
-
-        if not bootstrap and not cert_exists:
-            self.log(f"  SSL cert not found for {domain}, using bootstrap mode")
-            template_path = CONFIGS_DIR / "nginx" / "site-bootstrap.conf.j2"
-
-        # Render template
-        template_vars = {
-            "domain": domain,
-            "upstream_port": site.get("upstream_port", 8080),
-            "static_root": site.get("static_root", ""),
-        }
-        content = render_template(template_path, template_vars)
-
-        # Write to sites-available
-        site_file = NGINX_SITES_AVAILABLE / domain
-        if ensure_file(site_file, content, owner="root", group="root", mode=0o644):
-            self.record_change(f"Deployed site config: {domain}")
-
-        # Symlink to sites-enabled
-        enabled_link = NGINX_SITES_ENABLED / domain
-        if ensure_symlink(enabled_link, site_file):
-            self.record_change(f"Enabled site: {domain}")
-
-    def _validate_nginx(self) -> bool:
-        """Validate nginx configuration."""
-        result = subprocess.run(
-            ["sudo", "nginx", "-t"],
-            capture_output=True,
-        )
-        if result.returncode != 0:
-            self.log(result.stderr.decode() if result.stderr else "Unknown error")
-        return result.returncode == 0
-
-    def run_certbot(self, domains: list[str] | None = None) -> None:
-        """Run certbot to obtain SSL certificates."""
-        self.log("=== Running Certbot ===")
-
-        if not self.dry_run:
-            ensure_packages(["certbot", "python3-certbot-nginx"], self.pm)
-
-        # Get domains from sites.toml if not specified
-        if not domains:
-            sites = load_sites_config()
-            domains = [site.get("domain", name) for name, site in sites.items()]
-
-        if not domains:
-            self.log("No domains to configure")
-            return
-
-        for domain in domains:
-            cert_path = Path(f"/etc/letsencrypt/live/{domain}/fullchain.pem")
-            # Check cert existence (may need sudo to access /etc/letsencrypt)
-            cert_exists = False
-            try:
-                cert_exists = cert_path.exists()
-            except PermissionError:
-                # Try with sudo
-                result = subprocess.run(
-                    ["sudo", "test", "-f", str(cert_path)],
-                    capture_output=True,
-                )
-                cert_exists = result.returncode == 0
-
-            if cert_exists:
-                self.log(f"  {domain}: cert already exists, skipping")
-                continue
-
-            self.log(f"  {domain}: obtaining certificate...")
-            if not self.dry_run:
-                result = subprocess.run(
-                    [
-                        "sudo", "certbot", "certonly",
-                        "--nginx",
-                        "-d", domain,
-                        "--non-interactive",
-                        "--agree-tos",
-                        "--register-unsafely-without-email",
-                    ],
-                    capture_output=True,
-                )
-                if result.returncode == 0:
-                    self.record_change(f"Obtained SSL cert for {domain}")
-                else:
-                    self.log(f"  ERROR: certbot failed for {domain}")
-                    self.log(result.stderr.decode() if result.stderr else "Unknown error")
-
-    def nginx_bootstrap(self) -> None:
-        """Bootstrap nginx: deploy HTTP-only configs, run certbot, then deploy SSL configs."""
-        self.log("=== Nginx Bootstrap ===")
-        self.log("Phase 1: Deploy HTTP-only site configs")
-        self.setup_nginx(bootstrap=True)
-
-        self.log("")
-        self.log("Phase 2: Obtain SSL certificates")
-        self.run_certbot()
-
-        self.log("")
-        self.log("Phase 3: Deploy full SSL site configs")
-        self.setup_nginx(bootstrap=False)
-
-    # -------------------------------------------------------------------------
     # Services
     # -------------------------------------------------------------------------
 
@@ -619,7 +402,6 @@ class SysConf:
         self.install_packages(groups)
         self.deploy_dotfiles()
         self.apply_security()
-        self.setup_nginx()
         self.setup_services()
 
         self.log("")
@@ -692,21 +474,6 @@ def main():
     # security command
     subparsers.add_parser("security", help="Apply security hardening only", parents=[common_parser])
 
-    # nginx command
-    nginx_parser = subparsers.add_parser(
-        "nginx", help="Configure nginx sites", parents=[common_parser]
-    )
-    nginx_parser.add_argument(
-        "--bootstrap",
-        action="store_true",
-        help="Bootstrap mode: deploy HTTP-only, run certbot, then deploy SSL",
-    )
-    nginx_parser.add_argument(
-        "--certbot-only",
-        action="store_true",
-        help="Only run certbot for defined sites",
-    )
-
     # tailscale command
     tailscale_parser = subparsers.add_parser(
         "tailscale", help="Configure Tailscale VPN", parents=[common_parser]
@@ -719,6 +486,61 @@ def main():
 
     # info command
     subparsers.add_parser("info", help="Show system information", parents=[common_parser])
+
+    # webpages command
+    webpages_parser = subparsers.add_parser(
+        "webpages", help="Deploy web applications", parents=[common_parser]
+    )
+    webpages_parser.add_argument(
+        "--certbot-only",
+        action="store_true",
+        help="Only run certbot for configured domains",
+    )
+
+    # secrets command
+    secrets_parser = subparsers.add_parser(
+        "secrets", help="Manage secrets and .env files", parents=[common_parser]
+    )
+    secrets_parser.add_argument(
+        "--scan-only",
+        action="store_true",
+        help="Only scan for .env.example files, don't prompt",
+    )
+
+    # toolchains command
+    toolchains_parser = subparsers.add_parser(
+        "toolchains", help="Install development toolchains (Go, Rust, Node, etc.)", parents=[common_parser]
+    )
+    toolchains_parser.add_argument(
+        "names",
+        nargs="*",
+        help="Specific toolchains to install (default: all configured)",
+    )
+
+    # clean command
+    clean_parser = subparsers.add_parser(
+        "clean", help="Remove deployed configurations", parents=[common_parser]
+    )
+    clean_parser.add_argument(
+        "--webpages",
+        action="store_true",
+        help="Remove nginx configs and systemd services for webpages",
+    )
+    clean_parser.add_argument(
+        "--dotfiles",
+        action="store_true",
+        help="Remove deployed dotfile symlinks",
+    )
+    clean_parser.add_argument(
+        "--services",
+        action="store_true",
+        help="Remove deployed systemd services",
+    )
+    clean_parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Remove all deployed configurations",
+    )
 
     args = parser.parse_args()
 
@@ -748,14 +570,6 @@ def main():
         elif args.command == "security":
             conf.apply_security()
 
-        elif args.command == "nginx":
-            if args.certbot_only:
-                conf.run_certbot()
-            elif args.bootstrap:
-                conf.nginx_bootstrap()
-            else:
-                conf.setup_nginx()
-
         elif args.command == "tailscale":
             conf.setup_tailscale_vpn(logout=args.logout)
 
@@ -764,6 +578,33 @@ def main():
             print(f"Project Root: {PROJECT_ROOT}")
             print(f"Configs Dir: {CONFIGS_DIR}")
             print(f"Python: {sys.version}")
+
+        elif args.command == "webpages":
+            from lib.webpages import WebpageDeployer
+            deployer = WebpageDeployer(dry_run=args.dry_run, verbose=args.verbose)
+            if args.certbot_only:
+                deployer.run_certbot()
+            else:
+                deployer.run()
+
+        elif args.command == "secrets":
+            from lib.secrets import SecretsManager
+            manager = SecretsManager(dry_run=args.dry_run, verbose=args.verbose)
+            manager.run(scan_only=args.scan_only)
+
+        elif args.command == "toolchains":
+            from lib.toolchains import ToolchainManager
+            manager = ToolchainManager(dry_run=args.dry_run, verbose=args.verbose)
+            manager.run(toolchains=args.names if args.names else None)
+
+        elif args.command == "clean":
+            from lib.clean import Cleaner
+            cleaner = Cleaner(dry_run=args.dry_run, verbose=args.verbose)
+            cleaner.run(
+                webpages=args.webpages or args.all,
+                dotfiles=args.dotfiles or args.all,
+                services=args.services or args.all,
+            )
 
     except KeyboardInterrupt:
         print("\nAborted.")

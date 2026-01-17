@@ -55,14 +55,10 @@ path = "/static/"
 alias = "{path}/backend/static/"
 
 [[webpages.countertrak.services]]
-name = "countertrak-django"
-description = "Countertrak Django"
-exec_start = "{path}/venv/bin/gunicorn backend.wsgi:application -b 127.0.0.1:8000"
-
-[[webpages.countertrak.services]]
-name = "countertrak-gsi"
-description = "Countertrak GSI"
-exec_start = "{path}/gsi/server"
+name = "countertrak"
+description = "Countertrak Django + GSI servers"
+exec_start = "{path}/venv/bin/python {path}/backend/run_servers.py"
+write_paths = ["{path}"]
 
 # -----------------------------------------------------------------------------
 # learn.dconn.dev - Static learning site

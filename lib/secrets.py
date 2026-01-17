@@ -181,20 +181,32 @@ def prompt_for_secret(
 
     if secret_type == "port":
         # Port handling - validate and suggest alternatives
+        # But skip "in use" warning if this is an existing configured value
+        # (e.g., DB_PORT=5432 when PostgreSQL is correctly running on 5432)
         if default:
-            port = int(default)
-            if is_port_in_use(port):
-                alt_port = find_available_port(port + 1)
-                print(f"    Port {port} is in use!")
-                if alt_port:
-                    print(f"    Suggested alternative: {alt_port}")
-                    default = str(alt_port)
+            try:
+                port = int(default)
+                port_in_use = is_port_in_use(port)
+                # Only suggest alternative if this looks like a fresh default from .env.example
+                # If the port is in use AND this is a DB port, that's likely correct
+                is_db_port = "db" in key.lower() or "database" in key.lower() or "postgres" in key.lower()
+                if port_in_use and not is_db_port:
+                    alt_port = find_available_port(port + 1)
+                    print(f"    Port {port} is in use!")
+                    if alt_port:
+                        print(f"    Suggested alternative: {alt_port}")
+                        default = str(alt_port)
+                elif port_in_use and is_db_port:
+                    print(f"    Port {port} has a service listening (expected for database)")
+            except ValueError:
+                pass
 
         value = prompt(f"    Port number", default)
         if value:
             try:
                 port = int(value)
-                if is_port_in_use(port):
+                is_db_port = "db" in key.lower() or "database" in key.lower() or "postgres" in key.lower()
+                if is_port_in_use(port) and not is_db_port:
                     print(f"    WARNING: Port {port} appears to be in use")
             except ValueError:
                 print(f"    WARNING: '{value}' is not a valid port number")
@@ -218,6 +230,34 @@ def prompt_for_secret(
         # Generic handling
         value = prompt(f"    Value", default)
         return value, False
+
+
+def read_existing_env(file_path: Path) -> Dict[str, str]:
+    """
+    Read an existing .env file into a dictionary.
+
+    Args:
+        file_path: Path to the .env file
+
+    Returns:
+        Dictionary of key -> value
+    """
+    env_vars = {}
+    if not file_path.exists():
+        return env_vars
+
+    with open(file_path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" in line:
+                key, _, value = line.partition("=")
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+                env_vars[key] = value
+
+    return env_vars
 
 
 def generate_env_file(
@@ -400,6 +440,9 @@ class SecretsManager:
                 env_dest = repo_path / rel_path / ".env"
                 print(f"\n  Processing {repo_name}/{rel_path}/.env.example")
 
+            # Read existing .env values (for idempotency)
+            existing_env = read_existing_env(env_dest)
+
             # Check if .env already exists
             if env_dest.exists() and not self.dry_run:
                 if not confirm(f"    {env_dest} exists. Overwrite?", default=False):
@@ -411,16 +454,19 @@ class SecretsManager:
 
             processed = {}
             for key, default in env_vars.items():
-                # Use value from secrets.toml if available
+                # Priority: secrets.toml > existing .env > .env.example default
                 if key in repo_secrets and repo_secrets[key]:
                     processed[key] = repo_secrets[key]
                     if self.verbose:
                         print(f"    {key}: using value from secrets.toml")
                     continue
 
-                secret_type = classify_secret_type(key, default)
+                # Use existing .env value as the default if available
+                effective_default = existing_env.get(key, default)
+
+                secret_type = classify_secret_type(key, effective_default)
                 value, skipped = prompt_for_secret(
-                    key, default, secret_type, repo_name, self.dry_run
+                    key, effective_default, secret_type, repo_name, self.dry_run
                 )
 
                 if skipped:

@@ -228,6 +228,12 @@ class WebpageDeployer:
             for key, value in svc.get("environment", {}).items():
                 env[key] = expand_template_vars(str(value), path_context)
 
+            # Process write_paths with variable expansion
+            write_paths = [
+                expand_template_vars(p, path_context)
+                for p in svc.get("write_paths", [])
+            ]
+
             # Build template context
             context = {
                 "name": svc_name,
@@ -238,7 +244,7 @@ class WebpageDeployer:
                 "exec_start": exec_start,
                 "environment": env,
                 "requires": svc.get("requires", ""),
-                "write_paths": svc.get("write_paths", []),
+                "write_paths": write_paths,
             }
 
             content = render_template(template_path, context)
@@ -349,12 +355,13 @@ class WebpageDeployer:
             self.log(f"  {msg}")
 
             # Set proper ownership and permissions on cloned/pulled repo
+            # Mode 0o775 allows www-data group to write (needed for logs, uploads, etc.)
             if not self.dry_run:
-                set_permissions_recursive(webpage_path, owner="dev", group="www-data", mode=0o755)
+                set_permissions_recursive(webpage_path, owner="dev", group="www-data", mode=0o775)
 
         # Ensure directory exists (for non-repo cases)
         if not self.dry_run:
-            ensure_dir(webpage_path, owner="dev", group="www-data", mode=0o755)
+            ensure_dir(webpage_path, owner="dev", group="www-data", mode=0o775)
 
         # Process .env.example files before build (builds often need env vars)
         env_examples = scan_repo_env_examples(webpage_path)

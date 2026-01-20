@@ -6,22 +6,25 @@ import tomllib
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from .base import BaseOrchestrator
 from .files import ensure_dir, ensure_file, ensure_symlink, render_template, set_permissions_recursive
 from .git import clone_or_pull
+from .paths import (
+    CERTBOT_LIVE,
+    CONFIGS_DIR,
+    NGINX_SITES_AVAILABLE,
+    NGINX_SITES_ENABLED,
+    PROJECT_ROOT,
+    SYSTEMD_DIR,
+    WEBPAGES_CONFIG,
+    WWW_BASE,
+    get_canonical_env_path,
+)
 from .prompts import warn_missing
-from .secrets import SecretsManager, scan_repo_env_examples
+from .secrets import SecretsManager, generate_env_file, scan_repo_env_examples, symlink_env_file
 from .services import daemon_reload, enable_service, ensure_service_file, reload_service
+from .setup import SetupHandler
 from .toolchains import ToolchainManager
-
-# Project paths
-PROJECT_ROOT = Path(__file__).parent.parent.resolve()
-CONFIGS_DIR = PROJECT_ROOT / "configs"
-WEBPAGES_CONFIG = CONFIGS_DIR / "webpages.toml"
-
-# System paths
-NGINX_SITES_AVAILABLE = Path("/etc/nginx/sites-available")
-NGINX_SITES_ENABLED = Path("/etc/nginx/sites-enabled")
-SYSTEMD_DIR = Path("/etc/systemd/system")
 
 
 def load_webpages_config() -> dict:
@@ -54,24 +57,15 @@ def expand_template_vars(value: str, context: Dict[str, str]) -> str:
     return value
 
 
-class WebpageDeployer:
+class WebpageDeployer(BaseOrchestrator):
     """Orchestrator for webpage deployments."""
 
     def __init__(self, dry_run: bool = False, verbose: bool = False):
-        self.dry_run = dry_run
-        self.verbose = verbose
-        self.changes = []
+        super().__init__(dry_run=dry_run, verbose=verbose)
         self.secrets_manager = SecretsManager(dry_run=dry_run, verbose=verbose)
+        self.secrets_manager.load_or_create_secrets()
         self.toolchain_manager = ToolchainManager(dry_run=dry_run, verbose=verbose)
-
-    def log(self, msg: str) -> None:
-        """Log a message."""
-        prefix = "[DRY-RUN] " if self.dry_run else ""
-        print(f"{prefix}{msg}")
-
-    def record_change(self, description: str) -> None:
-        """Record a change that was made."""
-        self.changes.append(description)
+        self.setup_handler = SetupHandler(dry_run=dry_run, verbose=verbose)
 
     def _validate_nginx(self) -> bool:
         """Validate nginx configuration."""
@@ -335,7 +329,7 @@ class WebpageDeployer:
         # Determine webpage path
         webpage_path = base_path / domain
 
-        # Clone or update repository
+        # 1. Clone or update repository
         repo = config.get("repo")
         if repo:
             ssh_key = self.secrets_manager.get_ssh_key_path()
@@ -350,35 +344,71 @@ class WebpageDeployer:
             )
 
             if not success:
-                self.log(f"  Repository operation failed: {msg}")
+                self.log(f"  ERROR: Repository operation failed: {msg}")
+                self.log(f"  Resolution: Check SSH key, network, or repo URL")
+                self.log(f"    - Verify repo exists: gh repo view {repo}")
+                self.log(f"    - Check SSH: ssh -T git@github.com")
                 return False
             self.log(f"  {msg}")
-
-            # Set proper ownership and permissions on cloned/pulled repo
-            # Mode 0o775 allows www-data group to write (needed for logs, uploads, etc.)
-            if not self.dry_run:
-                set_permissions_recursive(webpage_path, owner="dev", group="www-data", mode=0o775)
 
         # Ensure directory exists (for non-repo cases)
         if not self.dry_run:
             ensure_dir(webpage_path, owner="dev", group="www-data", mode=0o775)
 
-        # Process .env.example files before build (builds often need env vars)
-        env_examples = scan_repo_env_examples(webpage_path)
+        # 2. Process .env.example files before build (builds often need env vars)
+        base_domain = self.secrets_manager.get_base_domain()
+        env_examples = scan_repo_env_examples(webpage_path, base_domain)
         if env_examples:
-            self.log(f"  Found .env.example file(s), processing secrets...")
-            self.secrets_manager.process_repo_secrets(name, env_examples, webpage_path)
+            self.log(f"  Found .env.example file(s), processing secrets with symlinks...")
+            self.secrets_manager.process_repo_secrets_with_symlinks(name, env_examples, webpage_path)
 
-        # Run build if specified
+        # 3. Run special setup (postgres, venv, pip, django)
+        setup_config = config.get("setup", {})
+        if setup_config:
+            if not self.setup_handler.run_setup(name, webpage_path, setup_config):
+                self.log(f"  ERROR: Setup failed for {name}")
+                self.log(f"  Resolution: Check the errors above, then re-run:")
+                self.log(f"    ./sysconf.py webpages")
+                self.log(f"  Common issues:")
+                self.log(f"    - PostgreSQL not running: sudo systemctl start postgresql")
+                self.log(f"    - Python version missing: sudo apt install python3.11-venv")
+                self.log(f"    - pip install failed: check requirements.txt syntax")
+                return False
+            # Merge setup handler changes into our changes
+            self.changes.extend(self.setup_handler.changes)
+            self.setup_handler.changes.clear()
+
+        # 4. Run build if specified
         build_cmd = config.get("build")
-        if build_cmd and not self._run_build(webpage_path, build_cmd):
-            self.log("  Build failed, continuing with deployment...")
+        if build_cmd:
+            if not self._run_build(webpage_path, build_cmd):
+                self.log(f"  ERROR: Build failed for {name}")
+                self.log(f"  Resolution: Fix build errors, then re-run:")
+                self.log(f"    cd {webpage_path} && {build_cmd}")
+                self.log(f"    ./sysconf.py webpages")
+                return False
 
-        # Deploy nginx config
-        self._deploy_nginx_config(name, config, webpage_path, bootstrap)
+        # 5. Final permission fix - AFTER all setup/build steps
+        # This ensures files created by pip, django, build are all accessible by www-data
+        if not self.dry_run:
+            self.log(f"  Setting final permissions on {webpage_path}")
+            set_permissions_recursive(webpage_path, owner="dev", group="www-data", mode=0o775)
 
-        # Deploy systemd services
-        self._deploy_systemd_services(name, config, webpage_path)
+        # 6. Deploy nginx config
+        if not self._deploy_nginx_config(name, config, webpage_path, bootstrap):
+            self.log(f"  ERROR: Failed to deploy nginx config for {name}")
+            self.log(f"  Resolution: Check nginx template and config:")
+            self.log(f"    - Template: configs/nginx/site.conf.j2")
+            self.log(f"    - Test: sudo nginx -t")
+            return False
+
+        # 7. Deploy systemd services
+        if not self._deploy_systemd_services(name, config, webpage_path):
+            self.log(f"  ERROR: Failed to deploy systemd services for {name}")
+            self.log(f"  Resolution: Check service template and config:")
+            self.log(f"    - Template: configs/systemd/app.service.j2")
+            self.log(f"    - Status: sudo systemctl status {name}")
+            return False
 
         return True
 

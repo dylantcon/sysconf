@@ -31,6 +31,42 @@ def _needs_sudo_read(path: Path) -> bool:
     return path.exists() and not os.access(path, os.R_OK)
 
 
+def _needs_sudo_chown(path: Path, target_owner: Optional[str], target_group: Optional[str]) -> bool:
+    """
+    Check if we need sudo for chown operation.
+
+    chown requires root unless:
+    - We're already root
+    - We own the file AND we're only changing group to one we belong to
+    """
+    if os.geteuid() == 0:
+        return False  # Already root
+
+    # Changing owner always requires root (non-root can't give away files)
+    if target_owner and target_owner != pwd.getpwuid(os.getuid()).pw_name:
+        return True
+
+    # Check if we own the file
+    if path.exists():
+        try:
+            stat = path.stat()
+            if stat.st_uid != os.getuid():
+                return True  # Don't own it, need sudo
+        except PermissionError:
+            return True
+
+    # Changing group requires being in that group or root
+    if target_group:
+        try:
+            target_gid = grp.getgrnam(target_group).gr_gid
+            if target_gid not in os.getgroups() and target_gid != os.getgid():
+                return True
+        except KeyError:
+            return True  # Group doesn't exist, will fail anyway
+
+    return False
+
+
 def read_file(path: Union[str, Path]) -> str:
     """
     Read file content, using sudo if necessary.
@@ -122,18 +158,19 @@ def set_permissions_recursive(
         return False
 
     changed = False
-    needs_sudo = _needs_sudo(path)
 
     if owner or group:
         chown_arg = f"{owner or ''}:{group or ''}"
         print(f"Setting ownership {chown_arg} recursively on {path}")
-        cmd = ["sudo", "chown", "-R", chown_arg, str(path)] if needs_sudo else ["chown", "-R", chown_arg, str(path)]
+        needs_sudo_chown = _needs_sudo_chown(path, owner, group)
+        cmd = ["sudo", "chown", "-R", chown_arg, str(path)] if needs_sudo_chown else ["chown", "-R", chown_arg, str(path)]
         subprocess.run(cmd, check=True)
         changed = True
 
     if mode is not None:
         print(f"Setting mode {oct(mode)} recursively on {path}")
-        cmd = ["sudo", "chmod", "-R", oct(mode)[2:], str(path)] if needs_sudo else ["chmod", "-R", oct(mode)[2:], str(path)]
+        needs_sudo_chmod = _needs_sudo(path)
+        cmd = ["sudo", "chmod", "-R", oct(mode)[2:], str(path)] if needs_sudo_chmod else ["chmod", "-R", oct(mode)[2:], str(path)]
         subprocess.run(cmd, check=True)
         changed = True
 
@@ -154,7 +191,6 @@ def set_permissions(
     """
     path = Path(path)
     changed = False
-    needs_sudo = _needs_sudo(path)
 
     if owner or group:
         stat = path.stat()
@@ -167,7 +203,7 @@ def set_permissions(
         if current_owner != target_owner or current_group != target_group:
             print(f"Setting ownership {target_owner}:{target_group} on {path}")
             chown_arg = f"{target_owner}:{target_group}"
-            if needs_sudo:
+            if _needs_sudo_chown(path, target_owner, target_group):
                 subprocess.run(["sudo", "chown", chown_arg, str(path)], check=True)
             else:
                 shutil.chown(path, user=target_owner, group=target_group)
@@ -177,7 +213,7 @@ def set_permissions(
         current_mode = path.stat().st_mode & 0o777
         if current_mode != mode:
             print(f"Setting mode {oct(mode)} on {path}")
-            if needs_sudo:
+            if _needs_sudo(path):
                 subprocess.run(["sudo", "chmod", oct(mode)[2:], str(path)], check=True)
             else:
                 path.chmod(mode)

@@ -3,35 +3,40 @@
 import subprocess
 import tomllib
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
-# Project paths
-PROJECT_ROOT = Path(__file__).parent.parent.resolve()
-CONFIGS_DIR = PROJECT_ROOT / "configs"
-WEBPAGES_CONFIG = CONFIGS_DIR / "webpages.toml"
+from .base import BaseOrchestrator
+from .paths import (
+    CERTBOT_LIVE,
+    NGINX_SITES_AVAILABLE,
+    NGINX_SITES_ENABLED,
+    SYSTEMD_DIR,
+    WEBPAGES_CONFIG,
+    WWW_BASE,
+    get_canonical_env_path,
+)
+from .prompts import confirm
+from .setup import remove_postgres_db
 
-# System paths
-NGINX_SITES_AVAILABLE = Path("/etc/nginx/sites-available")
-NGINX_SITES_ENABLED = Path("/etc/nginx/sites-enabled")
-SYSTEMD_DIR = Path("/etc/systemd/system")
 
-
-class Cleaner:
+class Cleaner(BaseOrchestrator):
     """Handles cleanup of deployed configurations."""
 
     def __init__(self, dry_run: bool = False, verbose: bool = False):
-        self.dry_run = dry_run
-        self.verbose = verbose
-        self.changes = []
+        super().__init__(dry_run=dry_run, verbose=verbose)
 
-    def log(self, msg: str) -> None:
-        """Log a message."""
-        prefix = "[DRY-RUN] " if self.dry_run else ""
-        print(f"{prefix}{msg}")
+    def _load_webpages_config(self) -> dict:
+        """Load webpages configuration."""
+        if not WEBPAGES_CONFIG.exists():
+            return {"defaults": {}, "webpages": {}}
 
-    def record_change(self, description: str) -> None:
-        """Record a change that was made."""
-        self.changes.append(description)
+        with open(WEBPAGES_CONFIG, "rb") as f:
+            return tomllib.load(f)
+
+    def _get_all_webpage_names(self) -> List[str]:
+        """Get list of all webpage names from config."""
+        config = self._load_webpages_config()
+        return list(config.get("webpages", {}).keys())
 
     def _sudo_rm(self, path: Path) -> bool:
         """Remove a file or symlink with sudo."""
@@ -43,158 +48,151 @@ class Cleaner:
             subprocess.run(["sudo", "rm", "-f", str(path)], check=True)
         return True
 
-    def _sudo_rm_rf(self, path: Path) -> bool:
-        """Remove a directory recursively with sudo."""
-        if not path.exists():
+    def clean_webpage(self, name: str) -> bool:
+        """
+        Fully clean a webpage - the inverse of deploy_webpage().
+
+        Removes everything:
+        - Systemd services (stop, disable, remove)
+        - Nginx config (sites-available + sites-enabled)
+        - SSL certificate (unless shared/wildcard)
+        - .env symlink and canonical file in secrets/
+        - PostgreSQL database and user (if configured)
+        - Repository directory
+
+        Args:
+            name: Webpage name (from webpages.toml)
+
+        Returns:
+            True if cleanup was performed
+        """
+        config = self._load_webpages_config()
+        wp_config = config.get("webpages", {}).get(name)
+
+        if not wp_config:
+            self.log(f"ERROR: Webpage '{name}' not found in config")
+            self.log(f"Available: {', '.join(self._get_all_webpage_names())}")
             return False
 
-        self.log(f"  Removing directory: {path}")
+        domain = wp_config.get("domain", name)
+        ssl_cert_domain = wp_config.get("ssl_cert_domain")
+        services = [svc.get("name", name) for svc in wp_config.get("services", [])]
+        setup_config = wp_config.get("setup", {})
+        webpage_path = WWW_BASE / domain
+
+        self.log(f"\n=== Cleaning: {name} ({domain}) ===")
+
+        # Confirm before destructive operations
         if not self.dry_run:
-            subprocess.run(["sudo", "rm", "-rf", str(path)], check=True)
-        return True
+            if not confirm(f"Remove all configuration for {name}?", default=False):
+                self.log("Skipped.")
+                return False
 
-    def _get_webpage_domains(self) -> List[str]:
-        """Get list of domains from webpages.toml."""
-        if not WEBPAGES_CONFIG.exists():
-            return []
-
-        with open(WEBPAGES_CONFIG, "rb") as f:
-            config = tomllib.load(f)
-
-        domains = []
-        for name, wp_config in config.get("webpages", {}).items():
-            domain = wp_config.get("domain", name)
-            domains.append(domain)
-        return domains
-
-    def _get_webpage_services(self) -> List[str]:
-        """Get list of service names from webpages.toml."""
-        if not WEBPAGES_CONFIG.exists():
-            return []
-
-        with open(WEBPAGES_CONFIG, "rb") as f:
-            config = tomllib.load(f)
-
-        services = []
-        for name, wp_config in config.get("webpages", {}).items():
-            for svc in wp_config.get("services", []):
-                svc_name = svc.get("name", name)
-                services.append(svc_name)
-        return services
-
-    def clean_webpages(self) -> None:
-        """Remove nginx configs and systemd services for webpages."""
-        self.log("\n=== Cleaning Webpages ===")
-
-        domains = self._get_webpage_domains()
-        services = self._get_webpage_services()
-
-        if not domains and not services:
-            self.log("No webpages configured")
-            return
-
-        # Remove nginx configs
-        self.log("\nRemoving nginx configurations...")
-        for domain in domains:
-            enabled = NGINX_SITES_ENABLED / domain
-            available = NGINX_SITES_AVAILABLE / domain
-
-            if self._sudo_rm(enabled):
-                self.record_change(f"Removed nginx enabled: {domain}")
-            if self._sudo_rm(available):
-                self.record_change(f"Removed nginx config: {domain}")
-
-        # Remove systemd services
-        self.log("\nRemoving systemd services...")
+        # 1. Stop and remove systemd services
         for svc_name in services:
             svc_file = SYSTEMD_DIR / f"{svc_name}.service"
-
-            # Stop and disable service first
-            if svc_file.exists():
+            if svc_file.exists() or self.dry_run:
                 self.log(f"  Stopping service: {svc_name}")
                 if not self.dry_run:
-                    subprocess.run(
-                        ["sudo", "systemctl", "stop", svc_name],
-                        capture_output=True,
-                    )
-                    subprocess.run(
-                        ["sudo", "systemctl", "disable", svc_name],
-                        capture_output=True,
-                    )
-
+                    subprocess.run(["sudo", "systemctl", "stop", svc_name], capture_output=True)
+                    subprocess.run(["sudo", "systemctl", "disable", svc_name], capture_output=True)
                 if self._sudo_rm(svc_file):
                     self.record_change(f"Removed service: {svc_name}")
 
-        # Reload systemd and nginx
+        # 2. Remove nginx config
+        enabled = NGINX_SITES_ENABLED / domain
+        available = NGINX_SITES_AVAILABLE / domain
+        if self._sudo_rm(enabled):
+            self.record_change(f"Removed nginx enabled: {domain}")
+        if self._sudo_rm(available):
+            self.record_change(f"Removed nginx config: {domain}")
+
+        # 3. Remove SSL certificate (skip if using shared/wildcard)
+        if ssl_cert_domain and ssl_cert_domain != domain:
+            self.log(f"  Skipping SSL: uses shared cert from {ssl_cert_domain}")
+        else:
+            cert_path = CERTBOT_LIVE / domain
+            cert_exists = False
+            try:
+                cert_exists = cert_path.exists()
+            except PermissionError:
+                result = subprocess.run(["sudo", "test", "-d", str(cert_path)], capture_output=True)
+                cert_exists = result.returncode == 0
+
+            if cert_exists:
+                self.log(f"  Removing SSL certificate: {domain}")
+                if not self.dry_run:
+                    result = subprocess.run(
+                        ["sudo", "certbot", "delete", "--cert-name", domain, "--non-interactive"],
+                        capture_output=True, text=True,
+                    )
+                    if result.returncode == 0:
+                        self.record_change(f"Removed SSL cert: {domain}")
+                    else:
+                        self.log(f"  WARNING: certbot delete failed: {result.stderr}")
+
+        # 4. Remove .env files (canonical in /etc/sysconf/secrets + symlinks)
+        canonical = get_canonical_env_path(name)
+        if canonical.exists():
+            if self._sudo_rm(canonical):
+                self.record_change(f"Removed .env: {name}")
+
+        # Check common subdirs for env files
+        for subdir in ["", "backend"]:
+            env_path = webpage_path / subdir / ".env" if subdir else webpage_path / ".env"
+            if env_path.is_symlink():
+                self._sudo_rm(env_path)
+
+            if subdir:
+                subdir_canonical = get_canonical_env_path(f"{name}-{subdir}")
+                if subdir_canonical.exists():
+                    if self._sudo_rm(subdir_canonical):
+                        self.record_change(f"Removed .env: {name}-{subdir}")
+
+        # 5. Remove PostgreSQL database/user if configured
+        postgres_config = setup_config.get("postgres", {})
+        if postgres_config:
+            db_name = postgres_config.get("db", name)
+            db_user = postgres_config.get("user", name)
+            self.log(f"  Removing PostgreSQL: db={db_name}, user={db_user}")
+            if remove_postgres_db(db_name, db_user, self.dry_run):
+                self.record_change(f"Removed PostgreSQL: {db_name}")
+
+        # 6. Remove repository directory
+        if webpage_path.exists():
+            self.log(f"  Removing directory: {webpage_path}")
+            if not self.dry_run:
+                subprocess.run(["sudo", "rm", "-rf", str(webpage_path)], check=True)
+            self.record_change(f"Removed directory: {webpage_path}")
+
+        # Reload daemons
         if not self.dry_run and self.changes:
-            self.log("\nReloading daemons...")
             subprocess.run(["sudo", "systemctl", "daemon-reload"], check=True)
-            subprocess.run(
-                ["sudo", "systemctl", "reload", "nginx"],
-                capture_output=True,
-            )
+            subprocess.run(["sudo", "systemctl", "reload", "nginx"], capture_output=True)
 
-    def clean_dotfiles(self) -> None:
-        """Remove deployed dotfile symlinks."""
-        self.log("\n=== Cleaning Dotfiles ===")
+        return True
 
-        home = Path.home()
-        dotfiles_dir = CONFIGS_DIR / "dotfiles"
+    def run(self, targets: Optional[List[str]] = None) -> None:
+        """
+        Run cleanup operations.
 
-        if not dotfiles_dir.exists():
-            self.log("No dotfiles directory found")
-            return
-
-        # Check each dotfile
-        for dotfile in dotfiles_dir.iterdir():
-            if dotfile.is_file():
-                target = home / f".{dotfile.name}"
-
-                # Only remove if it's a symlink pointing to our dotfile
-                if target.is_symlink():
-                    link_target = target.resolve()
-                    if link_target == dotfile.resolve():
-                        self.log(f"  Removing symlink: {target}")
-                        if not self.dry_run:
-                            target.unlink()
-                        self.record_change(f"Removed dotfile: {target.name}")
-
-    def clean_services(self) -> None:
-        """Remove deployed systemd services (non-webpage)."""
-        self.log("\n=== Cleaning Services ===")
-        # This would clean services deployed by services command
-        # For now, just a placeholder since most services are webpage-related
-        self.log("No standalone services to clean")
-
-    def run(
-        self,
-        webpages: bool = False,
-        dotfiles: bool = False,
-        services: bool = False,
-    ) -> None:
-        """Run cleanup operations."""
-        if not any([webpages, dotfiles, services]):
-            self.log("No cleanup targets specified. Use --webpages, --dotfiles, --services, or --all")
-            return
-
+        Args:
+            targets: Specific webpage names to clean. If empty/None, cleans all.
+        """
         self.log("=== Sysconf Cleanup ===")
 
-        if webpages:
-            self.clean_webpages()
-
-        if dotfiles:
-            self.clean_dotfiles()
-
-        if services:
-            self.clean_services()
-
-        # Summary
-        self.log("\n" + "=" * 60)
-        if self.dry_run:
-            self.log("Dry-run complete - no changes were made")
-        elif self.changes:
-            self.log(f"Changes made: {len(self.changes)}")
-            for change in self.changes:
-                self.log(f"  - {change}")
+        # Determine what to clean
+        if targets:
+            to_clean = targets
         else:
-            self.log("No changes needed - nothing to clean")
+            to_clean = self._get_all_webpage_names()
+            if not to_clean:
+                self.log("No webpages configured.")
+                return
+            self.log(f"Cleaning all webpages: {', '.join(to_clean)}")
+
+        # Clean each target
+        for name in to_clean:
+            self.clean_webpage(name)
+
+        self.summarize()

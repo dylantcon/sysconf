@@ -11,10 +11,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from urllib.request import urlopen
 
-# Project paths
-PROJECT_ROOT = Path(__file__).parent.parent.resolve()
-CONFIGS_DIR = PROJECT_ROOT / "configs"
-TOOLCHAINS_CONFIG = CONFIGS_DIR / "toolchains.toml"
+from .base import BaseOrchestrator
+from .paths import CONFIGS_DIR, PROJECT_ROOT, TOOLCHAINS_CONFIG, get_user_home
 
 
 def get_arch() -> str:
@@ -31,24 +29,13 @@ def load_toolchains_config() -> dict:
         return tomllib.load(f)
 
 
-class ToolchainManager:
+class ToolchainManager(BaseOrchestrator):
     """Manages installation of development toolchains."""
 
     def __init__(self, dry_run: bool = False, verbose: bool = False):
-        self.dry_run = dry_run
-        self.verbose = verbose
+        super().__init__(dry_run=dry_run, verbose=verbose)
         self.config = load_toolchains_config()
         self.arch = get_arch()
-        self.changes = []
-
-    def log(self, msg: str) -> None:
-        """Log a message."""
-        prefix = "[DRY-RUN] " if self.dry_run else ""
-        print(f"{prefix}{msg}")
-
-    def record_change(self, description: str) -> None:
-        """Record a change that was made."""
-        self.changes.append(description)
 
     def _check_installed(self, name: str) -> Tuple[bool, Optional[str]]:
         """
@@ -228,14 +215,7 @@ class ToolchainManager:
 
     def _get_user_home(self) -> Path:
         """Get real user's home directory (handles sudo)."""
-        sudo_user = os.environ.get("SUDO_USER")
-        if sudo_user:
-            import pwd
-            try:
-                return Path(pwd.getpwnam(sudo_user).pw_dir)
-            except KeyError:
-                pass
-        return Path.home()
+        return get_user_home()
 
     def _update_path(self, name: str) -> None:
         """Ensure toolchain is in PATH (updates shell profile)."""

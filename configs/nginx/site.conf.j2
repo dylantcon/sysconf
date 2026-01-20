@@ -76,7 +76,7 @@ server {
 {% for loc in locations %}
     location {{ loc.path }} {
 {% if loc.proxy or loc.proxy_port %}
-        proxy_pass http://{% if loc.proxy and upstream_name %}{{ upstream_name }}{% else %}127.0.0.1:{{ loc.proxy_port | default(8080) }}{% endif %};
+        proxy_pass http://{% if loc.proxy and upstream_name %}{{ upstream_name }}{% else %}127.0.0.1:{{ loc.proxy_port | default(8080) }}{% endif %}{% if loc.strip_path %}/{% endif %};
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;

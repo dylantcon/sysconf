@@ -54,10 +54,33 @@ from lib.tailscale import (
     tailscale_logout,
 )
 
-# Project paths
-PROJECT_ROOT = Path(__file__).parent.resolve()
-CONFIGS_DIR = PROJECT_ROOT / "configs"
-SECRETS_DIR = PROJECT_ROOT / "secrets"
+# Import centralized paths
+from lib.paths import PROJECT_ROOT, CONFIGS_DIR, SECRETS_DIR
+
+
+def require_sudo(command: str) -> None:
+    """
+    Check for sudo privileges, fail fast with clear message if missing.
+
+    Args:
+        command: Name of command being run (for error message)
+    """
+    if os.geteuid() == 0:
+        return  # Already root
+
+    # Check if we can sudo without password (cached credentials)
+    result = subprocess.run(
+        ["sudo", "-n", "true"],
+        capture_output=True,
+    )
+    if result.returncode == 0:
+        return  # sudo available
+
+    print(f"ERROR: '{command}' requires superuser privileges", file=sys.stderr)
+    print(f"", file=sys.stderr)
+    print(f"Run with sudo:", file=sys.stderr)
+    print(f"  sudo ./sysconf.py {command}", file=sys.stderr)
+    sys.exit(1)
 
 
 def load_tailscale_config() -> dict:
@@ -522,24 +545,29 @@ def main():
         "clean", help="Remove deployed configurations", parents=[common_parser]
     )
     clean_parser.add_argument(
-        "--webpages",
-        action="store_true",
-        help="Remove nginx configs and systemd services for webpages",
+        "targets",
+        nargs="*",
+        help="Webpages to clean (e.g., countertrak learn). Omit for all.",
     )
-    clean_parser.add_argument(
-        "--dotfiles",
-        action="store_true",
-        help="Remove deployed dotfile symlinks",
+
+    # cron command
+    cron_parser = subparsers.add_parser(
+        "cron", help="Manage auto-push cron job", parents=[common_parser]
     )
-    clean_parser.add_argument(
-        "--services",
+    cron_parser.add_argument(
+        "--enable",
         action="store_true",
-        help="Remove deployed systemd services",
+        help="Enable auto-push cron job (runs every 30 minutes)",
     )
-    clean_parser.add_argument(
-        "--all",
+    cron_parser.add_argument(
+        "--disable",
         action="store_true",
-        help="Remove all deployed configurations",
+        help="Disable auto-push cron job",
+    )
+    cron_parser.add_argument(
+        "--status",
+        action="store_true",
+        help="Show current cron job status",
     )
 
     args = parser.parse_args()
@@ -552,10 +580,14 @@ def main():
 
     try:
         if args.command == "apply":
+            if not args.dry_run:
+                require_sudo("apply")
             groups = args.groups.split(",") if args.groups else None
             conf.apply_all(groups)
 
         elif args.command == "packages":
+            if not args.dry_run:
+                require_sudo("packages")
             if args.update and not args.dry_run:
                 update_system(conf.pm)
             groups = args.groups.split(",") if args.groups else None
@@ -565,12 +597,18 @@ def main():
             conf.deploy_dotfiles()
 
         elif args.command == "services":
+            if not args.dry_run:
+                require_sudo("services")
             conf.setup_services()
 
         elif args.command == "security":
+            if not args.dry_run:
+                require_sudo("security")
             conf.apply_security()
 
         elif args.command == "tailscale":
+            if not args.dry_run:
+                require_sudo("tailscale")
             conf.setup_tailscale_vpn(logout=args.logout)
 
         elif args.command == "info":
@@ -580,6 +618,8 @@ def main():
             print(f"Python: {sys.version}")
 
         elif args.command == "webpages":
+            if not args.dry_run:
+                require_sudo("webpages")
             from lib.webpages import WebpageDeployer
             deployer = WebpageDeployer(dry_run=args.dry_run, verbose=args.verbose)
             if args.certbot_only:
@@ -598,12 +638,19 @@ def main():
             manager.run(toolchains=args.names if args.names else None)
 
         elif args.command == "clean":
+            if not args.dry_run:
+                require_sudo("clean")
             from lib.clean import Cleaner
             cleaner = Cleaner(dry_run=args.dry_run, verbose=args.verbose)
-            cleaner.run(
-                webpages=args.webpages or args.all,
-                dotfiles=args.dotfiles or args.all,
-                services=args.services or args.all,
+            cleaner.run(targets=args.targets if args.targets else None)
+
+        elif args.command == "cron":
+            from lib.cron import CronManager
+            manager = CronManager(dry_run=args.dry_run, verbose=args.verbose)
+            manager.run(
+                enable=args.enable,
+                disable=args.disable,
+                show_status=args.status or (not args.enable and not args.disable),
             )
 
     except KeyboardInterrupt:

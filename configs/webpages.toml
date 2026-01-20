@@ -42,6 +42,23 @@ domain = "countertrak.dconn.dev"
 ssl_cert_domain = "dconn.dev"  # For wildcard cert
 repo = "dylantcon/countertrak"
 
+# Special setup configuration
+[webpages.countertrak.setup.postgres]
+db = "countertrak"
+user = "postgres"
+
+[webpages.countertrak.setup.venv]
+path = "venv"
+python = "python3"
+
+[webpages.countertrak.setup.pip]
+requirements = "backend/requirements.txt"
+
+[webpages.countertrak.setup.django]
+manage_py = "backend/manage.py"
+migrate = true
+collectstatic = true
+
 [[webpages.countertrak.locations]]
 path = "/"
 proxy_port = 8000
@@ -49,6 +66,7 @@ proxy_port = 8000
 [[webpages.countertrak.locations]]
 path = "/gsi/"
 proxy_port = 3000
+strip_path = true  # GSI server expects requests at /, not /gsi/
 
 [[webpages.countertrak.locations]]
 path = "/static/"

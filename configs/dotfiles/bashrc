@@ -102,3 +102,4 @@ alias web-owns='sudo chown -Rc dev:www-data /var/www/ && sudo chown -Rc dev:www-
 alias web-modes='sudo chmod -Rc 755 /var/www/ && sudo chmod -Rc 755 ~/sysconf/'
 alias web-perms='web-owns && web-modes && web-msg && web-breadcrumb'
 export PATH=/home/dev/.local/bin:/home/dev/bin:/home/dev/.local/bin:/home/dev/bin:/home/dev/.local/bin:/home/dev/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/games:/usr/games:.
+export PATH=$PATH:/usr/local/go/bin:$HOME/go/bin

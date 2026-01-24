@@ -96,10 +96,10 @@ fi
 alias py3='source ~/.venvs/py3/bin/activate'
 
 # Below is used by vim to automatically update fileperms for data served by nginx
-alias web-breadcrumb='read -n 1 -s -r -p "Press any key to continue . . ."'
+alias shell-pause='read -n 1 -s -r -p "Press any key to continue . . ." && echo -e "\n"'
 alias web-msg='echo -e "Recursively applied access 755, group dev:www-data\n"'
 alias web-owns='sudo chown -Rc dev:www-data /var/www/ && sudo chown -Rc dev:www-data ~/sysconf/'
 alias web-modes='sudo chmod -Rc 755 /var/www/ && sudo chmod -Rc 755 ~/sysconf/'
-alias web-perms='web-owns && web-modes && web-msg && web-breadcrumb'
+alias web-perms='web-owns && web-modes && web-msg && shell-pause'
 export PATH=/home/dev/.local/bin:/home/dev/bin:/home/dev/.local/bin:/home/dev/bin:/home/dev/.local/bin:/home/dev/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/games:/usr/games:.
 export PATH=$PATH:/usr/local/go/bin:$HOME/go/bin

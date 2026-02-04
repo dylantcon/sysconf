@@ -69,6 +69,7 @@ nnoremap <leader>bd :bdelete<CR>
 autocmd FileType python setlocal tabstop=4 shiftwidth=4
 autocmd FileType javascript,typescript,json,yaml setlocal tabstop=2 shiftwidth=2
 autocmd FileType go setlocal noexpandtab tabstop=4 shiftwidth=4
+autocmd FileType c,cpp,cc,h,hpp setlocal tabstop=2 shiftwidth=2 softtabstop=2 expandtab textwidth=80 colorcolumn=80
 autocmd FileType make setlocal noexpandtab
 
 " Trim trailing whitespace on save

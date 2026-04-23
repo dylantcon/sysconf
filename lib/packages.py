@@ -131,6 +131,11 @@ def install(packages: list[str], pm: Optional[PackageManager] = None) -> None:
         _ensure_apt_updated()
 
     cmd = _get_install_cmd(pm) + packages
+
+    if os.getenv("MSYSTEM") is not None:
+        # some msys2 dev env, assume admin privs. slice out sudo
+        cmd = cmd[1::]
+
     subprocess.run(cmd, check=True)
 
 

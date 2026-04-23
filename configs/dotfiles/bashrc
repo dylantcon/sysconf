@@ -94,9 +94,13 @@ fi
 
 # autostart ssh agent if configuring shell on msys2 ucrt64 sys
 if [ -n "$MSYSTEM" ]; then
-    echo "This is an MSYS2 environment"
-else
-    echo "This is likely a normal Linux system"
+    if ! pgrep -u "$USER" ssh-agent > /dev/null; then
+        ssh-agent -s > ~/.ssh/agent.env
+    fi
+    if [[ ! "$SSH_AUTH_SOCK" ]]; then
+        source ~/.ssh/agent.env > /dev/null
+    fi
+    ssh-add ~/,ssh/id_ed25519 2>/dev/null
 fi
 
 # Python virtual environment shortcut

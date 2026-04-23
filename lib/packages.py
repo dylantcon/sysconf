@@ -1,5 +1,6 @@
 """Cross-distro package management with idempotent operations."""
 
+import os
 import shutil
 import subprocess
 from enum import Enum, auto

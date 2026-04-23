@@ -101,6 +101,7 @@ if [ -n "$MSYSTEM" ]; then
         source ~/.ssh/agent.env > /dev/null
     fi
     ssh-add ~/,ssh/id_ed25519 2>/dev/null
+    export PATH="/c/Users/dylan/AppData/Local/Microsoft/WindowsApps/PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0/python.exe:$PATH"
 fi
 
 # Python virtual environment shortcut

@@ -41,6 +41,7 @@ from lib.services import (
 )
 from lib.files import (
     ensure_file,
+    ensure_symlink,
     read_file,
 )
 from lib.security import (

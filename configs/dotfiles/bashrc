@@ -92,6 +92,13 @@ if [ -d "$HOME/.npm-global/bin" ]; then
     export PATH="$HOME/.npm-global/bin:$PATH"
 fi
 
+# autostart ssh agent if configuring shell on msys2 ucrt64 sys
+if [ -n "$MSYSTEM" ]; then
+    echo "This is an MSYS2 environment"
+else
+    echo "This is likely a normal Linux system"
+fi
+
 # Python virtual environment shortcut
 alias py3='source ~/.venvs/py3/bin/activate'
 

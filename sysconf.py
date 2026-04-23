@@ -65,6 +65,10 @@ def require_sudo(command: str) -> None:
     Args:
         command: Name of command being run (for error message)
     """
+    if os.getenv("MSYSTEM") is not None:
+        # some dev environment from MSYS2, assume administrator
+        return
+
     if os.geteuid() == 0:
         return  # Already root
 
@@ -187,7 +191,7 @@ class SysConf:
         except (KeyError, RuntimeError) as e:
                 print(f"Issue(s) with path construction: {e}")
                 home = Path(os.path.expanduser('~'))
-            
+
 
         dotfiles_dir = CONFIGS_DIR / u"dotfiles"
         if not dotfiles_dir.exists():

@@ -101,7 +101,7 @@ alias web-msg='echo -e "Recursively applied access 755, group $USER:www-data\n"'
 alias web-owns='sudo chown -Rc $USER:www-data /var/www/ && sudo chown -Rc $USER:www-data ~/sysconf/'
 alias web-modes='sudo chmod -Rc 755 /var/www/ && sudo chmod -Rc 755 ~/sysconf/'
 alias web-perms='web-owns && web-modes && web-msg && shell-pause'
-export PATH=/home/dev/.local/bin:/home/dev/bin:/home/dev/.local/bin:/home/dev/bin:/home/dev/.local/bin:/home/dev/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/games:/usr/games:.
+export PATH=/home/$USER/.local/bin:/home/$USER/bin:/home/$USER/.local/bin:/home/$USER/bin:/home/$USER/.local/bin:/home/$USER/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/games:/usr/games:.:$PATH
 export PATH=$PATH:/usr/local/go/bin:$HOME/go/bin
 
 # autostart ssh agent if configuring shell on msys2 ucrt64 sys

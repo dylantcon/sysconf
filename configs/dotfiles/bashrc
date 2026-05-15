@@ -106,8 +106,10 @@ export PATH=$PATH:/usr/local/go/bin:$HOME/go/bin
 
 # autostart ssh agent if configuring shell on msys2 ucrt64 sys
 if [ -n "$MSYSTEM" ]; then
-    if ! pgrep -u "$USER" ssh-agent > /dev/null; then
-        ssh-agent -s > ~/.ssh/agent.env
+    if command -v pgrep; then
+        if ! pgrep -u "$USER" ssh-agent > /dev/null; then
+            ssh-agent -s > ~/.ssh/agent.env
+        fi
     fi
     if [[ ! "$SSH_AUTH_SOCK" ]]; then
         source ~/.ssh/agent.env > /dev/null

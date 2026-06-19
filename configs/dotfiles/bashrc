@@ -117,4 +117,19 @@ if [ -n "$MSYSTEM" ]; then
     ssh-add ~/.ssh/id_ed25519 2>/dev/null
     export PATH="/ucrt64/bin/:/c/Users/dylan/AppData/Local/Microsoft/WindowsApps/PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0/:$PATH"
 fi
+if [[ "$MSYSTEM" ]] && command -v winpty >/dev/null 2>&1; then
+    for prog in python python3 node ipython irb php psql ghci claude; do
+        command -v "$prog" >/dev/null 2>&1 || continue
+        unalias "$prog" 2>/dev/null
+        eval "
+        ${prog}() {
+            if [ -t 0 ] && [ -t 1 ]; then
+                winpty ${prog} \"\$@\"
+            else
+                command ${prog} \"\$@\"
+            fi
+        }
+        "
+    done
+fi
 . "$HOME/.cargo/env"
